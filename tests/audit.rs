@@ -6,7 +6,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use cfb_forensic::{audit_bytes, audit_findings, live_entry_names, OlecfAnomaly, Scope, StructureIssue};
+use cfb_forensic::{
+    audit_bytes, audit_findings, live_entry_names, OlecfAnomaly, Scope, StructureIssue,
+};
 use forensicnomicon::olecf as k;
 use forensicnomicon::report::{Category, Severity};
 
@@ -80,11 +82,17 @@ fn deleted_stream_leaves_free_sector_residue() {
         })
         .collect();
 
-    assert!(!residue.is_empty(), "freed sectors still hold the secret bytes");
+    assert!(
+        !residue.is_empty(),
+        "freed sectors still hold the secret bytes"
+    );
     // The deleted `secret` stream was 6000 bytes; its freed FAT sectors retain
     // exactly that many non-zero bytes (4096-byte sectors: 4096 + 1904 = 6000).
     let total: usize = residue.iter().sum();
-    assert_eq!(total, 6000, "all 6000 secret bytes survive as free-sector residue");
+    assert_eq!(
+        total, 6000,
+        "all 6000 secret bytes survive as free-sector residue"
+    );
 
     // cfb's live set no longer lists `secret`.
     let live = live_entry_names(DELETED).expect("cfb opens deleted");
@@ -96,7 +104,11 @@ fn stream_tamper_tells_fire_for_nonzero_clsid_state_filetime() {
     // [MS-CFB] §2.6.3: a stream entry's CLSID, state bits, and FILETIMEs must be
     // zero. Mutate clean.cfb's `note` stream entry to violate all three.
     let mut bytes = CLEAN.to_vec();
-    let fds = u32::from_le_bytes(bytes[k::FIRST_DIR_SECTOR..k::FIRST_DIR_SECTOR + 4].try_into().unwrap());
+    let fds = u32::from_le_bytes(
+        bytes[k::FIRST_DIR_SECTOR..k::FIRST_DIR_SECTOR + 4]
+            .try_into()
+            .unwrap(),
+    );
     let shift = u16::from_le_bytes([bytes[k::SECTOR_SHIFT], bytes[k::SECTOR_SHIFT + 1]]);
     let dir0 = ((u64::from(fds) + 1) << shift) as usize;
     let note = dir0 + 2 * k::DIR_ENTRY_SIZE; // sid 2 = "note"
@@ -128,7 +140,10 @@ fn stream_tamper_tells_fire_for_nonzero_clsid_state_filetime() {
 fn real_world_jumplist_parses_without_panic_and_is_clean() {
     // A genuine *.automaticDestinations-ms is a well-formed CFB; it must parse
     // and surface no residue/tamper findings (only the provenance breadcrumb).
-    assert!(live_entry_names(JUMPLIST).is_some(), "cfb opens the real jumplist");
+    assert!(
+        live_entry_names(JUMPLIST).is_some(),
+        "cfb opens the real jumplist"
+    );
     let anomalies = audit_bytes(JUMPLIST);
     assert!(!codes(&anomalies).contains(&"OLECF-ORPHANED-DIR-ENTRY"));
     assert!(!codes(&anomalies).contains(&"OLECF-STRUCTURE-ANOMALY"));

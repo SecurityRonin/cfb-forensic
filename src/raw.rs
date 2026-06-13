@@ -124,7 +124,9 @@ fn le_u64(data: &[u8], off: usize) -> u64 {
 /// ([`forensicnomicon::olecf`] formula). Returns `None` on overflow.
 #[must_use]
 pub fn sector_offset(sid: u32, sector_shift: u16) -> Option<u64> {
-    (u64::from(sid)).checked_add(1)?.checked_shl(u32::from(sector_shift))
+    (u64::from(sid))
+        .checked_add(1)?
+        .checked_shl(u32::from(sector_shift))
 }
 
 /// Decode a compound file's header, FAT, mini-FAT, and directory array.
@@ -152,7 +154,7 @@ pub fn decode(data: &[u8]) -> Option<RawCfb> {
     let effective_shift = if (9..=20).contains(&sector_shift) {
         sector_shift
     } else {
-        u16::from(k::SECTOR_SHIFT_V3)
+        k::SECTOR_SHIFT_V3
     };
     let sector_size = 1usize << effective_shift;
 
@@ -215,7 +217,9 @@ fn read_fat(
     // sector ids plus a trailing next-DIFAT-sector pointer.
     let mut difat_sid = first_difat_sector;
     let mut steps = 0usize;
-    let difat_cap = (num_difat_sectors as usize).saturating_add(MAX_SECTORS).min(MAX_SECTORS);
+    let difat_cap = (num_difat_sectors as usize)
+        .saturating_add(MAX_SECTORS)
+        .min(MAX_SECTORS);
     while difat_sid <= k::MAXREGSECT && steps < difat_cap && steps < MAX_CHAIN_STEPS {
         let Some(sector) = sector_slice(data, sector_size, difat_sid) else {
             break;
@@ -285,7 +289,12 @@ fn read_chain_table(data: &[u8], sector_size: usize, fat: &[u32], first_sid: u32
 /// Read every directory entry by following the directory-sector chain from
 /// `first_dir_sector` and slicing each sector into 128-byte entries. Bounded by
 /// [`MAX_DIR_ENTRIES`]; loop-guarded against a cyclic directory chain.
-fn read_directory(data: &[u8], sector_size: usize, fat: &[u32], first_dir_sector: u32) -> Vec<DirEntry> {
+fn read_directory(
+    data: &[u8],
+    sector_size: usize,
+    fat: &[u32],
+    first_dir_sector: u32,
+) -> Vec<DirEntry> {
     let entries_per_sector = sector_size / k::DIR_ENTRY_SIZE;
     let mut entries: Vec<DirEntry> = Vec::new();
     let mut sid = first_dir_sector;
@@ -358,8 +367,9 @@ fn decode_entry_name(raw: &[u8], declared_len: usize) -> String {
     // `declared_len` counts bytes including the trailing UTF-16 NUL; clamp to the
     // 64-byte field and drop the terminator before decoding.
     let byte_len = declared_len.min(k::NAME_LEN);
-    let chars = byte_len / 2;
-    let chars = chars.saturating_sub(if chars > 0 { 1 } else { 0 });
+    // The declared length includes the terminating UTF-16 NUL; drop it (a no-op
+    // when the name is empty).
+    let chars = (byte_len / 2).saturating_sub(1);
     let mut units: Vec<u16> = Vec::with_capacity(chars);
     for i in 0..chars {
         units.push(le_u16(raw, k::NAME + i * 2));

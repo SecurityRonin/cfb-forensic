@@ -9,14 +9,14 @@
 //!
 //! Produces, under `tests/data/`:
 //!
-//! - `clean.cfb`        — a root storage with one sub-storage and three streams
-//!                        of varied sizes (one mini-stream, one large stream).
+//! - `clean.cfb` — a root storage with one sub-storage and three streams of
+//!   varied sizes (one mini-stream, one large stream).
 //! - `deleted_stream.cfb` — the same file with one stream removed *after* it was
-//!                        written, so its directory entry is detached from the
-//!                        live tree (orphan) and its sectors are freed but the
-//!                        bytes remain (free-sector residue). The exact mutation
-//!                        is: create streams `keep_a`, `secret`, `keep_b`, write
-//!                        recognizable payloads, then `remove_stream("/secret")`.
+//!   written, so its sectors are freed but the bytes remain (free-sector
+//!   residue). The exact mutation is: create streams `keep_a`, `secret`,
+//!   `keep_b`, write recognizable payloads, then `remove_stream("/secret")`.
+//! - `orphaned_entry.cfb` — `clean.cfb` with one stream's directory entry
+//!   unlinked from the live tree but left intact (the headline orphan carve).
 
 use std::fs;
 use std::io::{Cursor, Write};
@@ -124,8 +124,7 @@ fn write_orphaned_entry(out_dir: &Path) -> std::io::Result<()> {
     let mut bytes = fs::read(out_dir.join("clean.cfb"))?;
 
     // Resolve the directory's first sector offset from the header.
-    let first_dir_sector =
-        u32::from_le_bytes(read4(&bytes, k::FIRST_DIR_SECTOR)) as u64;
+    let first_dir_sector = u64::from(u32::from_le_bytes(read4(&bytes, k::FIRST_DIR_SECTOR)));
     let sector_shift = u16::from_le_bytes([bytes[k::SECTOR_SHIFT], bytes[k::SECTOR_SHIFT + 1]]);
     let sector_size = 1u64 << sector_shift;
     let dir_sector0 = (first_dir_sector + 1) * sector_size;
