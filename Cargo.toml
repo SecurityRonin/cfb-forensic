@@ -1,0 +1,42 @@
+[package]
+name = "cfb-forensic"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+license = "Apache-2.0"
+authors = ["Albert Hui <albert@securityronin.com>"]
+description = "Forensic carving over OLE Compound File Binary ([MS-CFB]) files — orphaned/deleted-stream directory entries, free-sector residue, slack, and structure-tamper anomalies. Happy-path reading via the cfb crate; this adds the carving layer cfb hides."
+repository = "https://github.com/SecurityRonin/cfb-forensic"
+homepage = "https://github.com/SecurityRonin/cfb-forensic"
+readme = "README.md"
+keywords = ["forensics", "cfb", "ole", "compound-file", "dfir"]
+categories = ["parser-implementations"]
+exclude = ["/tests/data", "/fuzz", "/docs", "/examples", "/.github", "/mkdocs.yml", "/.pre-commit-config.yaml", "/renovate.json"]
+
+[dependencies]
+cfb = "0.14"
+forensicnomicon = { path = "../forensicnomicon" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all                      = { level = "warn", priority = -1 }
+pedantic                 = { level = "warn", priority = -1 }
+correctness              = { level = "deny", priority = -1 }
+suspicious               = { level = "deny", priority = -1 }
+unwrap_used              = { level = "deny", priority = 0 }
+expect_used              = { level = "deny", priority = 0 }
+module_name_repetitions  = { level = "allow", priority = 1 }
+must_use_candidate       = { level = "allow", priority = 1 }
+missing_errors_doc       = { level = "allow", priority = 1 }
+missing_panics_doc       = { level = "allow", priority = 1 }
+doc_markdown             = { level = "allow", priority = 1 }
+cast_possible_truncation = { level = "allow", priority = 1 }
+cast_possible_wrap       = { level = "allow", priority = 1 }
+cast_sign_loss           = { level = "allow", priority = 1 }
+cast_precision_loss      = { level = "allow", priority = 1 }
+too_many_lines           = { level = "allow", priority = 1 }
+items_after_statements   = { level = "allow", priority = 1 }
+similar_names            = { level = "allow", priority = 1 }
+manual_let_else          = { level = "allow", priority = 1 }

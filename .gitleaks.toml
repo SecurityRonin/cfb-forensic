@@ -1,0 +1,12 @@
+# gitleaks configuration — extends the default ruleset. This repo carries no
+# secrets; the allowlist scopes the only known false positives (CI cache keys,
+# which gitleaks' generic-api-key rule flags on entropy alone — cache keys are
+# not secrets) so real secrets still surface.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "CI cache keys are not secrets"
+regexes = [
+  '''corpus-cfb-v[0-9]+''',
+]
