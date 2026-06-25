@@ -1,6 +1,6 @@
 [package]
 name = "cfb-forensic"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.81"
 license = "Apache-2.0"
@@ -15,7 +15,7 @@ exclude = ["/tests/data", "/fuzz", "/docs", "/examples", "/.github", "/mkdocs.ym
 
 [dependencies]
 cfb = "0.14"
-forensicnomicon = "0.5.2"
+forensicnomicon = "0.11"
 
 [lints.rust]
 unsafe_code = "forbid"
