@@ -15,7 +15,7 @@ exclude = ["/tests/data", "/fuzz", "/docs", "/examples", "/.github", "/mkdocs.ym
 
 [dependencies]
 cfb = "0.14"
-forensicnomicon = "0.11"
+forensicnomicon = "1"
 
 [lints.rust]
 unsafe_code = "forbid"
