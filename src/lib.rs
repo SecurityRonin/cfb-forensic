@@ -528,10 +528,11 @@ fn carve_fat(data: &[u8], raw: &RawCfb, start: u32, size: usize) -> Vec<u8> {
             break;
         }
         let start_off = (u64::from(sid) + 1).saturating_mul(raw.sector_size as u64);
-        if let Ok(off) = usize::try_from(start_off) {
-            if let Some(s) = data.get(off..off.saturating_add(raw.sector_size)) {
-                out.extend_from_slice(s);
-            }
+        if let Some(s) = usize::try_from(start_off)
+            .ok()
+            .and_then(|off| data.get(off..off.saturating_add(raw.sector_size)))
+        {
+            out.extend_from_slice(s);
         }
         sid = raw.fat.get(sid as usize).copied().unwrap_or(k::ENDOFCHAIN);
     }
@@ -634,10 +635,10 @@ fn detect_free_residue(data: &[u8], raw: &RawCfb, out: &mut Vec<OlecfAnomaly>) {
         }
         let sid = sid as u32;
         let off = (u64::from(sid) + 1).saturating_mul(raw.sector_size as u64);
-        let Ok(start) = usize::try_from(off) else {
-            continue;
-        };
-        let Some(sector) = data.get(start..start.saturating_add(raw.sector_size)) else {
+        let Some(sector) = usize::try_from(off)
+            .ok()
+            .and_then(|start| data.get(start..start.saturating_add(raw.sector_size)))
+        else {
             continue;
         };
         let residue = sector.iter().filter(|&&b| b != 0).count();
@@ -706,19 +707,18 @@ fn detect_slack(data: &[u8], raw: &RawCfb, out: &mut Vec<OlecfAnomaly>) {
         if unit == 0 || size % unit == 0 {
             continue; // exact multiple ⇒ no slack region
         }
-        let slack_start = size;
-        let slack_end = bytes.len();
-        if slack_end > slack_start {
-            let slack = &bytes[slack_start..slack_end];
-            let nonzero = slack.iter().filter(|&&b| b != 0).count();
-            if nonzero > 0 {
-                out.push(OlecfAnomaly::SlackResidue {
-                    sid: entry.sid,
-                    name: entry.name.clone(),
-                    space,
-                    slack_len: nonzero,
-                });
-            }
+        // Bytes past the declared size in the final allocated (mini-)sector. An
+        // out-of-order range (declared size > carved bytes) yields an empty
+        // slice, so there is no separate bounds branch to guard.
+        let slack = bytes.get(size..bytes.len()).unwrap_or(&[]);
+        let nonzero = slack.iter().filter(|&&b| b != 0).count();
+        if nonzero > 0 {
+            out.push(OlecfAnomaly::SlackResidue {
+                sid: entry.sid,
+                name: entry.name.clone(),
+                space,
+                slack_len: nonzero,
+            });
         }
     }
 }
@@ -773,4 +773,201 @@ pub fn read_live_stream(data: &[u8], path: &str) -> Option<Vec<u8>> {
     let mut buf = Vec::new();
     stream.read_to_end(&mut buf).ok()?;
     Some(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the private carving/detection helpers, using hand-built
+    //! [`RawCfb`] shapes to drive the rare and hostile paths (chain loops,
+    //! mini-FAT residue, slack, empty root name) that the real-artifact
+    //! integration fixtures in `tests/` do not reach. The integration suite
+    //! carries the Tier-1 validation against genuine CFB files; these fill the
+    //! branch-coverage gaps for defensive guards on crafted input.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    fn stub_raw() -> RawCfb {
+        RawCfb {
+            major_version: 3,
+            sector_shift: 9,
+            mini_sector_shift: 6,
+            mini_stream_cutoff: 4096,
+            byte_order: k::BYTE_ORDER_LE,
+            sector_size: 512,
+            first_difat_sector: k::ENDOFCHAIN,
+            num_difat_sectors: 0,
+            fat: Vec::new(),
+            mini_fat: Vec::new(),
+            dir_entries: Vec::new(),
+            file_len: 0,
+        }
+    }
+
+    fn stub_entry(sid: u32, object_type: u8, start_sector: u32, stream_size: u64) -> DirEntry {
+        DirEntry {
+            sid,
+            name: format!("e{sid}"),
+            object_type,
+            color: 1,
+            left: k::NOSTREAM,
+            right: k::NOSTREAM,
+            child: k::NOSTREAM,
+            clsid: [0u8; 16],
+            state_bits: 0,
+            create_time: 0,
+            modify_time: 0,
+            start_sector,
+            stream_size,
+        }
+    }
+
+    #[test]
+    fn carve_fat_terminates_on_self_looping_chain() {
+        // fat[0] -> 0 is a self-loop; the visited guard must break the walk.
+        let data = vec![0xAB_u8; 2048];
+        let mut raw = stub_raw();
+        raw.fat = vec![0];
+        let out = carve_fat(&data, &raw, 0, 5000);
+        // One sector consumed, then the loop guard fires — no infinite loop.
+        assert_eq!(out.len(), raw.sector_size);
+    }
+
+    #[test]
+    fn carve_fat_stops_when_start_sid_is_past_the_table() {
+        // start sid 5 is <= MAXREGSECT but past fat.len() == 1 → else-break.
+        let data = vec![0u8; 2048];
+        let mut raw = stub_raw();
+        raw.fat = vec![k::ENDOFCHAIN];
+        assert!(carve_fat(&data, &raw, 5, 100).is_empty());
+    }
+
+    #[test]
+    fn carve_mini_returns_empty_without_a_root_entry() {
+        let data = vec![0u8; 2048];
+        let raw = stub_raw(); // no dir_entries
+        assert!(carve_mini(&data, &raw, 0, 100).is_empty());
+    }
+
+    #[test]
+    fn carve_mini_terminates_on_self_loop_and_out_of_range_start() {
+        let data = vec![0u8; 2048];
+        let mut raw = stub_raw();
+        raw.dir_entries = vec![stub_entry(0, 0x05, 0, 0)]; // root
+        raw.fat = vec![k::ENDOFCHAIN];
+
+        // Self-loop mini chain: mini_fat[0] -> 0.
+        raw.mini_fat = vec![0];
+        let looped = carve_mini(&data, &raw, 0, 5000);
+        let mini_size = 1usize << raw.mini_sector_shift;
+        assert_eq!(looped.len(), mini_size);
+
+        // Out-of-range start mini-sid → else-break, empty.
+        raw.mini_fat = vec![k::ENDOFCHAIN];
+        assert!(carve_mini(&data, &raw, 9, 100).is_empty());
+    }
+
+    #[test]
+    fn carve_stream_skips_storages_and_uses_mini_chain_for_small_streams() {
+        let data = vec![0xCD_u8; 2048];
+        let mut raw = stub_raw();
+        raw.dir_entries = vec![stub_entry(0, 0x05, 0, 0)];
+        raw.fat = vec![k::ENDOFCHAIN];
+        raw.mini_fat = vec![k::ENDOFCHAIN];
+
+        // A storage (0x01) carves nothing.
+        let storage = stub_entry(1, 0x01, 0, 100);
+        assert!(carve_stream(&data, &raw, &storage).is_empty());
+
+        // A small stream (< cutoff) routes through the mini-FAT chain.
+        let small = stub_entry(1, 0x02, 0, 40);
+        let carved = carve_stream(&data, &raw, &small);
+        assert_eq!(carved.len(), 40);
+    }
+
+    #[test]
+    fn free_mini_sector_residue_is_reported() {
+        // Root's mini-stream (its regular-FAT stream) is sector 0's 512 bytes.
+        let mut data = vec![0u8; 2048];
+        for b in &mut data[512..560] {
+            *b = 0xAA; // 48 non-zero bytes inside mini-sector 0
+        }
+        let mut raw = stub_raw();
+        raw.dir_entries = vec![stub_entry(0, 0x05, 0, 0)];
+        raw.fat = vec![k::ENDOFCHAIN];
+        raw.mini_fat = vec![k::FREESECT]; // mini-sector 0 marked free
+
+        let mut out = Vec::new();
+        detect_free_residue(&data, &raw, &mut out);
+        assert!(out.iter().any(|a| matches!(
+            a,
+            OlecfAnomaly::FreeSectorResidue {
+                space: "mini-FAT",
+                residue_len: 48,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn slack_residue_is_reported_for_a_live_mini_stream() {
+        // Mini-stream spans mini-sectors 1 and 2 (128 bytes); the live stream
+        // declares 100 bytes, leaving 28 slack bytes that are non-zero.
+        let mut data = vec![0u8; 2048];
+        // mini-sector 2's tail (mini_stream[164..192] => data[676..704]) is slack.
+        for b in &mut data[676..704] {
+            *b = 0x55;
+        }
+        let mut raw = stub_raw();
+        // root (sid 0) -> child stream (sid 1)
+        let mut root = stub_entry(0, 0x05, 0, 0);
+        root.child = 1;
+        let stream = stub_entry(1, 0x02, 1, 100); // starts at mini-sector 1
+        raw.dir_entries = vec![root, stream];
+        raw.fat = vec![k::ENDOFCHAIN];
+        // mini chain 1 -> 2 -> end
+        raw.mini_fat = vec![k::ENDOFCHAIN, 2, k::ENDOFCHAIN];
+
+        let mut out = Vec::new();
+        detect_slack(&data, &raw, &mut out);
+        assert!(out.iter().any(|a| matches!(
+            a,
+            OlecfAnomaly::SlackResidue {
+                space: "mini-FAT",
+                slack_len: 28,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn slack_detection_skips_streams_that_fill_their_final_sector() {
+        // size 128 == 2 * mini_size (64) ⇒ no slack region, exact-multiple path.
+        let data = vec![0u8; 2048];
+        let mut raw = stub_raw();
+        let mut root = stub_entry(0, 0x05, 0, 0);
+        root.child = 1;
+        let stream = stub_entry(1, 0x02, 1, 128);
+        raw.dir_entries = vec![root, stream];
+        raw.fat = vec![k::ENDOFCHAIN];
+        raw.mini_fat = vec![k::ENDOFCHAIN, 2, k::ENDOFCHAIN];
+
+        let mut out = Vec::new();
+        detect_slack(&data, &raw, &mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn root_clsid_defaults_the_name_when_the_root_entry_is_unnamed() {
+        let mut raw = stub_raw();
+        raw.dir_entries = vec![stub_entry(0, 0x05, 0, 0)];
+        raw.dir_entries[0].name = String::new();
+
+        let mut out = Vec::new();
+        surface_root_clsid(&raw, &mut out);
+        assert!(matches!(
+            &out[0],
+            OlecfAnomaly::RootClsid { name, .. } if name == "Root Entry"
+        ));
+    }
 }

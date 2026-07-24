@@ -236,7 +236,7 @@ fn read_fat(
         difat_sid = le_u32(sector, (entries_per_sector - 1) * 4);
         steps += 1;
         if fat_sector_ids.len() > MAX_SECTORS {
-            break;
+            break; // cov:unreachable: reached only by a ~16M-FAT-sector (multi-TB) image
         }
     }
 
@@ -249,7 +249,7 @@ fn read_fat(
         for i in 0..entries_per_sector {
             fat.push(le_u32(sector, i * 4));
             if fat.len() >= MAX_SECTORS {
-                return fat;
+                return fat; // cov:unreachable: FAT hits the MAX_SECTORS cap only on a hostile multi-TB image
             }
         }
     }
@@ -277,7 +277,7 @@ fn read_chain_table(data: &[u8], sector_size: usize, fat: &[u32], first_sid: u32
         for i in 0..entries_per_sector {
             out.push(le_u32(sector, i * 4));
             if out.len() >= MAX_SECTORS {
-                return out;
+                return out; // cov:unreachable: mini-FAT hits the MAX_SECTORS cap only on a hostile multi-TB image
             }
         }
         sid = next_in_fat(fat, sid);
@@ -318,7 +318,7 @@ fn read_directory(
             let sid_index = entries.len() as u32;
             entries.push(parse_dir_entry(raw, sid_index));
             if entries.len() >= MAX_DIR_ENTRIES {
-                return entries;
+                return entries; // cov:unreachable: directory hits the MAX_DIR_ENTRIES cap only on a hostile image
             }
         }
         sid = next_in_fat(fat, sid);
@@ -398,7 +398,7 @@ pub fn reachable_sids(entries: &[DirEntry]) -> Vec<bool> {
         }
         let idx = sid as usize;
         let Some(slot) = reachable.get_mut(idx) else {
-            continue;
+            continue; // cov:unreachable: sids are bounds-guarded at push (idx < entries.len())
         };
         if *slot {
             continue;
@@ -414,4 +414,70 @@ pub fn reachable_sids(entries: &[DirEntry]) -> Vec<bool> {
         }
     }
     reachable
+}
+
+#[cfg(test)]
+mod tests {
+    //! Crafted-buffer unit tests for the DIFAT-chain and loop-guard paths that a
+    //! well-formed real CFB fixture never exercises (a real file needs no DIFAT
+    //! sector below ~450 MB, and never contains a cyclic chain).
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    /// A 512-byte-sector buffer with sector 0 present (bytes 512..1024).
+    fn buf_with_sector0() -> Vec<u8> {
+        vec![0u8; 2048]
+    }
+
+    #[test]
+    fn read_fat_follows_a_difat_sector_chain() {
+        // first_difat_sector = 0 → the DIFAT sector is data[512..1024]. Its final
+        // u32 (the next-DIFAT pointer, offset 508) is ENDOFCHAIN → one pass.
+        let mut data = buf_with_sector0();
+        let last = 512 + (512 - 4);
+        data[last..last + 4].copy_from_slice(&k::ENDOFCHAIN.to_le_bytes());
+        let fat = read_fat(&data, 512, 0, 1);
+        // The DIFAT-sector body contributed FAT-sector ids; the FAT is populated.
+        assert!(!fat.is_empty());
+    }
+
+    #[test]
+    fn read_chain_table_breaks_on_a_self_looping_fat() {
+        // fat[0] -> 0 loops; the visited guard stops after one sector.
+        let data = buf_with_sector0();
+        let out = read_chain_table(&data, 512, &[0], 0);
+        assert_eq!(out.len(), 512 / 4);
+    }
+
+    #[test]
+    fn read_directory_breaks_on_a_self_looping_dir_chain() {
+        let data = buf_with_sector0();
+        let entries = read_directory(&data, 512, &[0], 0);
+        assert_eq!(entries.len(), 512 / k::DIR_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn reachable_sids_tolerates_a_node_referenced_twice() {
+        // Root (sid 0) points at sid 1 through both child and left → sid 1 is
+        // pushed twice; the second pop hits the already-visited guard.
+        let mk = |sid: u32, child: u32, left: u32| DirEntry {
+            sid,
+            name: String::new(),
+            object_type: 0x05,
+            color: 1,
+            left,
+            right: k::NOSTREAM,
+            child,
+            clsid: [0u8; 16],
+            state_bits: 0,
+            create_time: 0,
+            modify_time: 0,
+            start_sector: 0,
+            stream_size: 0,
+        };
+        let entries = vec![mk(0, 1, 1), mk(1, k::NOSTREAM, k::NOSTREAM)];
+        let reachable = reachable_sids(&entries);
+        assert_eq!(reachable, vec![true, true]);
+    }
 }
