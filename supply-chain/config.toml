@@ -17,14 +17,10 @@ url = "https://raw.githubusercontent.com/google/rust-crate-audits/main/audits.to
 url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
 
 [policy.cfb-forensic]
-audit-as-crates-io = true
+audit-as-crates-io = false
 
 [[exemptions.cfb]]
 version = "0.14.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.cfb-forensic]]
-version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.cfg-if]]
