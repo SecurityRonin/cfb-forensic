@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.3](https://github.com/SecurityRonin/cfb-forensic/compare/cfb-forensic-v0.2.2...cfb-forensic-v0.2.3) - 2026-08-08
+
+### Fixed
+
+- *(supply-chain)* vet records for the versions the MSRV pin resolves
+
 ## [0.2.2](https://github.com/SecurityRonin/cfb-forensic/compare/cfb-forensic-v0.2.1...cfb-forensic-v0.2.2) - 2026-08-05
 
 ### Fixed
