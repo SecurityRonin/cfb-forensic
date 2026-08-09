@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.4](https://github.com/SecurityRonin/cfb-forensic/compare/cfb-forensic-v0.2.3...cfb-forensic-v0.2.4) - 2026-08-09
+
+### Fixed
+
+- *(gitignore)* unanchor the target rule so nested cargo projects are ignored
+
 ## [0.2.3](https://github.com/SecurityRonin/cfb-forensic/compare/cfb-forensic-v0.2.2...cfb-forensic-v0.2.3) - 2026-08-08
 
 ### Fixed
